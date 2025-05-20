@@ -1,0 +1,20 @@
+app-header {
+  height: 80px;
+  width: 100%;
+  background-color: white;
+  display: flex;
+}
+
+main {
+  height: calc(100vh - 160px);
+  width: 100%;
+  background-color: green;
+  display: flex;
+}
+
+app-footer {
+  height: 80px;
+  width: 100%;
+  background-color: white;
+  display: flex;
+}

@@ -1,0 +1,9 @@
+table,
+tbody {
+  display: table;
+  background-color: white;
+}
+
+td {
+  border: 1px solid gray;
+}

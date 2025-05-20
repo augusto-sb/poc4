@@ -1,0 +1,28 @@
+<table>
+  <thead>
+    @for (k of keys; track $index) {
+      <th>{{ k }}</th>
+    }
+    <!-- <th>key</th> -->
+  </thead>
+  <tbody>
+    @for (e of entities; track $index) {
+      <tr>
+        @for (k of keys; track $index) {
+          <td>{{ e[k] }}</td>
+        }
+      </tr>
+    }
+    <!-- <td>val</td> -->
+  </tbody>
+  <tfoot>
+    pages:
+    {{
+      entities.length
+    }}
+    /
+    {{
+      count
+    }}
+  </tfoot>
+</table>

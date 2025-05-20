@@ -1,0 +1,19 @@
+<table>
+  <thead>
+    <tr>
+      <th>Id</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    @for (e of entities; track $index) {
+      <tr>
+        <td>{{ e.Id }}</td>
+        <td>{{ e.Value }}</td>
+      </tr>
+    }
+  </tbody>
+  <tfoot>
+    pages
+  </tfoot>
+</table>

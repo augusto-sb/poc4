@@ -1,0 +1,28 @@
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100vh;
+  display: flex;
+}
+
+app-root {
+  margin: 0;
+  width: 100%;
+  height: 100vh;
+  padding: 0;
+  background-color: gray;
+  display: flex;
+  flex-direction: column;
+}
+
+/*no mg esto aca*/
+
+main * {
+  display: flex;
+  margin: auto;
+}
+
+router-outlet {
+  display: none;
+}

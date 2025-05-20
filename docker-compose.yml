@@ -1,0 +1,10 @@
+name: 'poc3'
+
+services:
+  frontend:
+  proxy:
+  backend:
+
+network:
+  lan:
+    driver: 'bridge'
