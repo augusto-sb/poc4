@@ -1,6 +1,7 @@
 FROM docker.io/golang:1.22.12-alpine3.21 AS compiler
 WORKDIR /app/
 COPY go.mod .
+COPY go.sum .
 COPY main.go .
 RUN go build -o main .
 

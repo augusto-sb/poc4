@@ -320,8 +320,7 @@ func entitiesHandler(rw http.ResponseWriter, req *http.Request) {
 // main
 
 func init() {
-	//url := "redis://user:password@localhost:6379/0?protocol=3"
-	url := "redis://localhost:6379/0"
+	url := os.Getenv("REDIS_URI")
 	opts, err := redis.ParseURL(url)
 	if err != nil {
 		panic(err)

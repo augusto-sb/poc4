@@ -2,9 +2,20 @@ name: 'poc3'
 
 services:
   frontend:
-  proxy:
+    image: "poc4/frontend:1.0.0"
+    build:
+      context: "frontend"
+    ports:
+      - "8080:8080/tcp"
   backend:
-
-network:
-  lan:
-    driver: 'bridge'
+    image: "poc4/backend:1.0.0"
+    build:
+      context: "backend"
+    environment:
+      REDIS_URI: "redis://redis:6379/0"
+  redis:
+    image: docker.io/redis:7.4.3-alpine
+    ports:
+      - "6379:6379/tcp"
+    tmpfs:
+      - "/data"
