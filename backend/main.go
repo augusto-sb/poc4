@@ -14,14 +14,16 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // types
 
 type session struct {
-	security  string
-	timestamp int64
-	info      map[string]any
+	Security  string         `json:"security"`
+	Timestamp int64          `json:"timestamp"`
+	Info      map[string]any `json:"info"`
 }
 
 type user struct {
@@ -38,17 +40,41 @@ const ctxKey string = "yourKey"
 
 // vars
 
-var muS sync.Mutex = sync.Mutex{}
 var muU sync.Mutex = sync.Mutex{}
-var sessions map[string]session = map[string]session{}
 var users []user = []user{
 	user{
 		name:     "admin",
 		password: "admin",
 	},
 }
+var ctx context.Context = context.Background()
+var rdb *redis.Client
 
 // helpers
+
+func getSession(key string) (*session, error) {
+	sessStr, err := rdb.Get(ctx, key).Result()
+	if err != nil {
+		return nil, err
+	}
+	var sess session = session{}
+	err = json.Unmarshal([]byte(sessStr), &sess)
+	if err != nil {
+		return nil, err
+	}
+	return &sess, nil
+}
+
+func setSession(key string, sess *session) error {
+	var err error
+	var sessByteArr []byte
+	sessByteArr, err = json.Marshal(sess)
+	if err != nil {
+		return err
+	}
+	err = rdb.Set(ctx, key, string(sessByteArr), 0).Err()
+	return err
+}
 
 func genCookie(val string, delete bool) *http.Cookie {
 	MaxAge := -1
@@ -71,23 +97,9 @@ func logger(msj string) {
 	}
 }
 
-/*func getSession(req *http.Request) *session{ // mmmmm
-	cookie, err := req.Cookie(cookieName)
-	if (err != nil){
-		return nil;
-	}
-	muS.Lock();
-	val, ok := sessions[cookie.Value];
-	muS.Unlock();
-	if(!ok){
-		return nil;
-	}
-	return &val;
-}*/
-
 //gracefull shutdown implementar!!!
 
-func setCleaner(timeSec uint) {
+/*func setCleaner(timeSec uint) {
 	//timer cada tanto limpia sessions vencidas!
 	ticker := time.NewTicker(time.Duration(timeSec*1000) * time.Millisecond)
 	done := make(chan bool)
@@ -97,8 +109,9 @@ func setCleaner(timeSec uint) {
 			case <-ticker.C:
 				logger("running cleaner!")
 				muS.Lock()
+				rdb.Scan
 				for k, v := range sessions {
-					if v.timestamp+(cookieDurationInSeconds*1000) < time.Now().UnixMilli() {
+					if v.Timestamp+(cookieDurationInSeconds*1000) < time.Now().UnixMilli() {
 						logger("cleaner found expired: " + k)
 						delete(sessions, k)
 					}
@@ -110,7 +123,7 @@ func setCleaner(timeSec uint) {
 			}
 		}
 	}()
-}
+}*/
 
 // middlewares
 
@@ -137,33 +150,29 @@ func sessionMiddleware(next http.HandlerFunc, protected bool) http.HandlerFunc {
 		if !shouldSetCookie {
 			logger(cookie.Value)
 			//check validity
-			muS.Lock()
-			val, ok := sessions[cookie.Value]
-			muS.Unlock()
-			if ok {
-				if val.timestamp+(cookieDurationInSeconds*1000) < unixMilli {
+			val, err := getSession(cookie.Value)
+			if err == nil {
+				if val.Timestamp+(cookieDurationInSeconds*1000) < unixMilli {
 					// expired
-					muS.Lock()
-					delete(sessions, cookie.Value)
-					muS.Unlock()
+					rdb.Del(ctx, cookie.Value)
 					shouldSetCookie = true
 				} else {
-					//actualizar timestamp
-					val.timestamp = unixMilli
-					muS.Lock()
-					sessions[cookie.Value] = val
-					muS.Unlock()
+					//actualizar Timestamp
+					val.Timestamp = unixMilli
+					err = setSession(cookie.Value, val)
+					if err != nil {
+						rw.WriteHeader(http.StatusInternalServerError)
+						return
+					}
 					cookie.MaxAge = cookieDurationInSeconds
 				}
-				if val.security != pseudoSecure {
-					muS.Lock()
-					delete(sessions, cookie.Value)
-					muS.Unlock()
+				if val.Security != pseudoSecure {
+					rdb.Del(ctx, cookie.Value)
 					rw.WriteHeader(http.StatusNotAcceptable)
 					rw.Write([]byte("hacker wtf\n"))
 					return
 				}
-				if len(val.info) == 0 {
+				if len(val.Info) == 0 {
 					if protected {
 						// protected handler and not logged in - future use of permissions
 						rw.WriteHeader(http.StatusUnauthorized)
@@ -171,7 +180,6 @@ func sessionMiddleware(next http.HandlerFunc, protected bool) http.HandlerFunc {
 					}
 				}
 			} else {
-				//rw.Write([]byte("cookie must have expired found in session!\n"))
 				shouldSetCookie = true
 			}
 		}
@@ -182,12 +190,14 @@ func sessionMiddleware(next http.HandlerFunc, protected bool) http.HandlerFunc {
 			cookieValueAndSessionKey := hex.EncodeToString(h.Sum(nil))
 			cookie = genCookie(cookieValueAndSessionKey, false)
 			newSession := session{
-				timestamp: unixMilli,
-				security:  pseudoSecure,
+				Timestamp: unixMilli,
+				Security:  pseudoSecure,
 			}
-			muS.Lock()
-			sessions[cookieValueAndSessionKey] = newSession
-			muS.Unlock()
+			err = setSession(cookieValueAndSessionKey, &newSession)
+			if err != nil {
+				rw.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 		}
 		http.SetCookie(rw, cookie)
 		ctx := context.WithValue(req.Context(), ctxKey, cookie.Value)
@@ -220,24 +230,17 @@ func middleware(next http.HandlerFunc, protected bool) http.HandlerFunc {
 // handlers
 
 func sessionHandler(rw http.ResponseWriter, req *http.Request) {
-	/*var sess *session = getSession(req);
-	if(sess == nil){
-		rw.WriteHeader(http.StatusInternalServerError);
-		return;
-	}*/
 	cookieValueAndSessionKey, ok := req.Context().Value(ctxKey).(string)
 	if !ok {
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	muS.Lock()
-	sess, ok := sessions[cookieValueAndSessionKey]
-	muS.Unlock()
-	if !ok {
+	sess, err := getSession(cookieValueAndSessionKey)
+	if err != nil {
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	byteArr, err := json.Marshal(len(sess.info))
+	byteArr, err := json.Marshal(len((*sess).Info))
 	if err != nil {
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
@@ -267,16 +270,17 @@ func loginHandler(rw http.ResponseWriter, req *http.Request) {
 	}
 	muU.Unlock()
 	if validUserPass {
-		muS.Lock()
-		sess, ok := sessions[cookieValueAndSessionKey]
-		if !ok {
+		sess, err := getSession(cookieValueAndSessionKey)
+		if err != nil {
 			rw.WriteHeader(http.StatusBadRequest)
 		} else {
-			sess.info = map[string]any{"asd": "asd"}
-			sessions[cookieValueAndSessionKey] = sess
+			sess.Info = map[string]any{"asd": "asd"}
+			err := setSession(cookieValueAndSessionKey, sess)
+			if err != nil {
+				fmt.Println(err)
+			}
 			rw.WriteHeader(http.StatusOK)
 		}
-		muS.Unlock()
 	} else {
 		rw.WriteHeader(http.StatusUnauthorized)
 	}
@@ -288,12 +292,10 @@ func logoutHandler(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	_, ok = sessions[cookieValueAndSessionKey]
-	if !ok {
-		rw.WriteHeader(http.StatusInternalServerError)
-		return
+	err := rdb.Del(ctx, cookieValueAndSessionKey).Err()
+	if err != nil {
+		fmt.Println(err)
 	}
-	delete(sessions, cookieValueAndSessionKey)
 	cookie := genCookie("", true)
 	http.SetCookie(rw, cookie)
 }
@@ -317,6 +319,16 @@ func entitiesHandler(rw http.ResponseWriter, req *http.Request) {
 
 // main
 
+func init() {
+	//url := "redis://user:password@localhost:6379/0?protocol=3"
+	url := "redis://localhost:6379/0"
+	opts, err := redis.ParseURL(url)
+	if err != nil {
+		panic(err)
+	}
+	rdb = redis.NewClient(opts)
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", middleware(http.NotFound, false))
@@ -324,7 +336,7 @@ func main() {
 	mux.HandleFunc("GET /session", middleware(sessionHandler, false))
 	mux.HandleFunc("POST /login", middleware(loginHandler, false))
 	mux.HandleFunc("POST /logout", middleware(logoutHandler, false))
-	setCleaner(cleanerInterval)
+	//setCleaner(cleanerInterval)
 	err := http.ListenAndServe("0.0.0.0:8080", mux)
 	if err != nil {
 		panic(err)
